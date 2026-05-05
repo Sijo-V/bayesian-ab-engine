@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Bayesian A/B Test Engine</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #0f1117;
+    --bg2:      #161b27;
+    --bg3:      #1e2536;
+    --border:   #2a3349;
+    --text:     #e2e8f0;
+    --muted:    #7c8db5;
+    --accent:   #4f8ef7;
+    --green:    #1db37a;
+    --red:      #e84d4d;
+    --yellow:   #f5a623;
+    --radius:   10px;
+    --font:     'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+
+  /* ── Layout ── */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar { width: 280px; background: var(--bg2); border-right: 1px solid var(--border); padding: 24px 16px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+  .main { flex: 1; padding: 28px 32px; overflow-y: auto; }
+
+  /* ── Sidebar ── */
+  .logo { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .logo-icon { font-size: 22px; }
+  .logo-text { font-size: 15px; font-weight: 600; color: var(--text); }
+  .logo-sub  { font-size: 11px; color: var(--muted); }
+
+  .section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field input[type=range] { accent-color: var(--accent); width: 100%; }
+  .field .val  { font-size: 12px; color: var(--accent); font-weight: 600; }
+  .field input[type=number], .field select {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%;
+  }
+  .field input[type=number]:focus, .field select:focus { outline: 1px solid var(--accent); }
+
+  .tab-row { display: flex; gap: 4px; background: var(--bg3); border-radius: 8px; padding: 3px; }
+  .tab { flex: 1; padding: 6px; text-align: center; font-size: 12px; cursor: pointer; border-radius: 6px; color: var(--muted); border: none; background: none; }
+  .tab.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+  .run-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: var(--radius);
+    padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;
+    transition: opacity .15s;
+  }
+  .run-btn:hover { opacity: .88; }
+  .run-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .upload-area {
+    border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 16px;
+    text-align: center; font-size: 12px; color: var(--muted); cursor: pointer; transition: border-color .15s;
+  }
+  .upload-area:hover { border-color: var(--accent); color: var(--accent); }
+  #fileInput { display: none; }
+
+  /* ── Main ── */
+  .page-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .page-sub   { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+  .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .metric-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .metric-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .metric-value { font-size: 24px; font-weight: 700; }
+  .metric-sub   { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
+  .chart-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .chart-sub   { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+  canvas       { max-height: 220px; }
+
+  /* ── Decision panel ── */
+  .decision-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; margin-bottom: 24px; }
+  .verdict-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .verdict-badge {
+    font-size: 16px; font-weight: 700; padding: 8px 20px; border-radius: 8px; letter-spacing: .02em;
+  }
+  .verdict-GO     { background: rgba(29,179,122,.18); color: var(--green); border: 1.5px solid var(--green); }
+  .verdict-HOLD   { background: rgba(245,166,35,.12); color: var(--yellow); border: 1.5px solid var(--yellow); }
+  .verdict-NOGO   { background: rgba(232,77,77,.12);  color: var(--red);    border: 1.5px solid var(--red); }
+  .verdict-INC    { background: rgba(79,142,247,.10); color: var(--accent); border: 1.5px solid var(--accent); }
+
+  .checks-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+  .check-item { display: flex; align-items: flex-start; gap: 9px; background: var(--bg3); border-radius: 8px; padding: 10px 12px; }
+  .check-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+  .check-label { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .check-val   { font-size: 13px; font-weight: 600; }
+
+  .revenue-box { background: var(--bg3); border-radius: 8px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .revenue-label { font-size: 12px; color: var(--muted); }
+  .revenue-val   { font-size: 18px; font-weight: 700; color: var(--green); }
+
+  /* ── Novelty warning ── */
+  .novelty-warning { border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 12px; }
+  .novelty-Low    { background: rgba(29,179,122,.10); color: #4be0a0; border: 1px solid rgba(29,179,122,.3); }
+  .novelty-Medium { background: rgba(245,166,35,.10); color: var(--yellow); border: 1px solid rgba(245,166,35,.3); }
+  .novelty-High   { background: rgba(232,77,77,.10);  color: #ff7777; border: 1px solid rgba(232,77,77,.3); }
+
+  /* ── Loader overlay ── */
+  .loader-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(15,17,23,.82);
+    z-index: 100; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+  .loader-overlay.active { display: flex; }
+  .spinner { width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text { color: var(--muted); font-size: 14px; }
+
+  /* ── Empty state ── */
+  .empty-state { text-align: center; padding: 80px 20px; }
+  .empty-icon  { font-size: 48px; margin-bottom: 14px; }
+  .empty-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+  .empty-sub   { font-size: 13px; color: var(--muted); }
+
+  /* ── Error ── */
+  .error-box { background: rgba(232,77,77,.1); border: 1px solid rgba(232,77,77,.4); border-radius: 8px; padding: 14px 18px; color: #ff9494; font-size: 13px; margin-bottom: 20px; }
+
+  /* ── Table ── */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  .data-table th { background: var(--bg3); color: var(--muted); font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .data-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .data-table tr:hover td { background: var(--bg3); }
+
+  /* ── Divider ── */
+  hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* ── Section header ── */
+  .section-header { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<div class="loader-overlay" id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text" id="loaderText">Running Bayesian MCMC sampling…</div>
+</div>
+
+<div class="layout">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">🧪</span>
+      <div>
+        <div class="logo-text">A/B Engine</div>
+        <div class="logo-sub">Bayesian · Novelty · Decision</div>
+      </div>
+    </div>
+
+    <!-- Data source tabs -->
+    <div>
+      <div class="section-label">Data source</div>
+      <div class="tab-row">
+        <button class="tab active" id="tabSimulate" onclick="switchTab('simulate')">Simulate</button>
+        <button class="tab"        id="tabUpload"   onclick="switchTab('upload')">Upload CSV</button>
+      </div>
+    </div>
+
+    <!-- Simulate panel -->
+    <div id="panelSimulate">
+      <div class="section-label">Simulation</div>
+      <div class="field">
+        <label>Users <span class="val" id="valUsers">10,000</span></label>
+        <input type="range" id="nUsers" min="1000" max="30000" step="500" value="10000"
+               oninput="document.getElementById('valUsers').textContent=Number(this.value).toLocaleString()">
+      </div>
+      <div class="field">
+        <label>Control CVR <span class="val" id="valCtrlCvr">5.0%</span></label>
+        <input type="range" id="ctrlCvr" min="1" max="20" step="0.5" value="5"
+               oninput="document.getElementById('valCtrlCvr').textContent=this.value+'%'">
+      </div>
+      <div class="field">
+        <label>Treatment CVR <span class="val" id="valTrtCvr">6.5%</span></label>
+        <input type="range" id="trtCvr" min="1" max="20" step="0.5" value="6.5"
+               oninput="document.getElementById('valTrtCvr').textContent=this.value+'%'">
+      </div>
+      <div class="field">
+        <label>Novelty boost <span class="val" id="valBoost">4.0%</span></label>
+        <input type="range" id="noveltyBoost" min="0" max="10" step="0.5" value="4"
+               oninput="document.getElementById('valBoost').textContent=this.value+'%'">
+      </div>
+      <div class="field">
+        <label>Experiment days <span class="val" id="valDays">21</span></label>
+        <input type="range" id="expDays" min="7" max="60" step="1" value="21"
+               oninput="document.getElementById('valDays').textContent=this.value">
+      </div>
+    </div>
+
+    <!-- Upload panel -->
+    <div id="panelUpload" style="display:none">
+      <div class="section-label">CSV file</div>
+      <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size:22px;margin-bottom:6px">📂</div>
+        <div id="uploadLabel">Click to upload experiment CSV</div>
+        <div style="font-size:11px;margin-top:4px">Required columns: user_id, variant, timestamp, session_day, converted</div>
+      </div>
+      <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect(this)">
+    </div>
+
+    <!-- Model settings -->
+    <div>
+      <div class="section-label">Model settings</div>
+      <div class="field">
+        <label>P(B&gt;A) threshold <span class="val" id="valProbThresh">90%</span></label>
+        <input type="range" id="probThresh" min="75" max="99" step="1" value="90"
+               oninput="document.getElementById('valProbThresh').textContent=this.value+'%'">
+      </div>
+      <div class="field">
+        <label>Min detectable effect <span class="val" id="valMDE">0.30%</span></label>
+        <input type="range" id="mde" min="0.05" max="2" step="0.05" value="0.30"
+               oninput="document.getElementById('valMDE').textContent=Number(this.value).toFixed(2)+'%'">
+      </div>
+      <div class="field">
+        <label>ROPE bound <span class="val" id="valRope">0.20%</span></label>
+        <input type="range" id="rope" min="0.05" max="1" step="0.05" value="0.20"
+               oninput="document.getElementById('valRope').textContent=Number(this.value).toFixed(2)+'%'">
+      </div>
+      <div class="field">
+        <label>Annual GMV ($)</label>
+        <input type="number" id="annualGmv" value="10000000" step="500000">
+      </div>
+    </div>
+
+    <button class="run-btn" id="runBtn" onclick="runAnalysis()">▶ Run Analysis</button>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <main class="main">
+    <div class="page-title">Bayesian A/B Test Significance Engine</div>
+    <div class="page-sub">Posterior inference · Novelty effect detection · Go / No-go decision</div>
+
+    <div id="errorBox" class="error-box" style="display:none"></div>
+    <div id="results"  style="display:none">
+
+      <!-- Metric cards -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-label">P(Treatment wins)</div>
+          <div class="metric-value" id="mProbWin">—</div>
+          <div class="metric-sub" id="mProbSub"></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Absolute lift</div>
+          <div class="metric-value" id="mLift">—</div>
+          <div class="metric-sub" id="mHDI"></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Relative lift</div>
+          <div class="metric-value" id="mRelLift">—</div>
+          <div class="metric-sub" id="mRope"></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Novelty risk</div>
+          <div class="metric-value" id="mNovelty">—</div>
+          <div class="metric-sub" id="mNoveltyScore"></div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-row">
+        <div class="chart-card">
+          <div class="chart-title">Posterior distribution — lift</div>
+          <div class="chart-sub" id="posteriorSub">Lift = treatment CVR − control CVR</div>
+          <canvas id="posteriorChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Novelty effect timeline</div>
+          <div class="chart-sub">Daily lift over experiment duration</div>
+          <canvas id="noveltyChart"></canvas>
+          <div id="noveltyWarning" class="novelty-warning" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- Decision panel -->
+      <div class="decision-card">
+        <div class="section-header">Go / No-go Decision</div>
+        <div class="verdict-row">
+          <div class="verdict-badge" id="verdictBadge">—</div>
+          <div style="font-size:13px;color:var(--muted)" id="verdictSub"></div>
+        </div>
+        <div class="checks-grid" id="checksGrid"></div>
+        <div class="revenue-box" id="revenueBox" style="display:none">
+          <div>
+            <div class="revenue-label">Estimated annual revenue impact</div>
+            <div class="revenue-val" id="revenueVal">—</div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);text-align:right" id="revenueNote"></div>
+        </div>
+      </div>
+
+      <!-- Variant comparison -->
+      <div class="chart-card" style="margin-bottom:24px">
+        <div class="chart-title">Variant conversion rates</div>
+        <div class="chart-sub" id="variantSub"></div>
+        <canvas id="variantChart" style="max-height:140px"></canvas>
+      </div>
+
+      <!-- SRM warnings -->
+      <div id="srmWarnings"></div>
+
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🔬</div>
+      <div class="empty-title">Configure &amp; run your experiment</div>
+      <div class="empty-sub">Adjust settings in the sidebar and click <strong>Run Analysis</strong><br>to compute the Bayesian posterior and go/no-go decision.</div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+let posteriorChartInst = null;
+let noveltyChartInst   = null;
+let variantChartInst   = null;
+let currentTab = 'simulate';
+let selectedFile = null;
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('panelSimulate').style.display = tab === 'simulate' ? '' : 'none';
+  document.getElementById('panelUpload').style.display   = tab === 'upload'   ? '' : 'none';
+  document.getElementById('tabSimulate').className = 'tab' + (tab === 'simulate' ? ' active' : '');
+  document.getElementById('tabUpload').className   = 'tab' + (tab === 'upload'   ? ' active' : '');
+}
+
+function handleFileSelect(input) {
+  selectedFile = input.files[0];
+  if (selectedFile) {
+    document.getElementById('uploadLabel').textContent = '✓ ' + selectedFile.name;
+  }
+}
+
+function getConfig() {
+  return {
+    n_users:          parseInt(document.getElementById('nUsers').value),
+    control_cvr:      parseFloat(document.getElementById('ctrlCvr').value) / 100,
+    treatment_cvr:    parseFloat(document.getElementById('trtCvr').value) / 100,
+    novelty_boost:    parseFloat(document.getElementById('noveltyBoost').value) / 100,
+    experiment_days:  parseInt(document.getElementById('expDays').value),
+    prob_threshold:   parseFloat(document.getElementById('probThresh').value) / 100,
+    min_lift:         parseFloat(document.getElementById('mde').value) / 100,
+    rope_bound:       parseFloat(document.getElementById('rope').value) / 100,
+    annual_gmv:       parseFloat(document.getElementById('annualGmv').value),
+  };
+}
+
+function showLoader(msg) {
+  document.getElementById('loaderText').textContent = msg || 'Running analysis…';
+  document.getElementById('loader').classList.add('active');
+  document.getElementById('runBtn').disabled = true;
+}
+function hideLoader() {
+  document.getElementById('loader').classList.remove('active');
+  document.getElementById('runBtn').disabled = false;
+}
+
+async function runAnalysis() {
+  showLoader('Running Bayesian MCMC sampling… (~20–40s)');
+  document.getElementById('errorBox').style.display = 'none';
+
+  try {
+    let data;
+    if (currentTab === 'upload' && selectedFile) {
+      const form = new FormData();
+      form.append('file', selectedFile);
+      form.append('config', JSON.stringify(getConfig()));
+      const res = await fetch('/api/upload', { method: 'POST', body: form });
+      data = await res.json();
+    } else {
+      const res = await fetch('/api/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(getConfig()),
+      });
+      data = await res.json();
+    }
+
+    if (!data.ok) throw new Error(data.error + '\n' + (data.trace || ''));
+    renderResults(data);
+  } catch (err) {
+    document.getElementById('errorBox').textContent = '⚠ ' + err.message;
+    document.getElementById('errorBox').style.display = '';
+  } finally {
+    hideLoader();
+  }
+}
+
+function fmt(v)   { return (v * 100).toFixed(2) + '%'; }
+function fmtPct(v){ return (v * 100).toFixed(1) + '%'; }
+function fmtDollars(v) { return '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits:0}); }
+
+function renderResults(d) {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('results').style.display    = '';
+
+  // ── Metric cards ──
+  const probColor = d.prob_b_beats_a >= 0.9 ? 'var(--green)' : d.prob_b_beats_a >= 0.7 ? 'var(--yellow)' : 'var(--red)';
+  set('mProbWin', fmtPct(d.prob_b_beats_a), probColor);
+  set('mProbSub', `Threshold: ${fmtPct(getConfig().prob_threshold)}`);
+  set('mLift',    fmt(d.lift_mean));
+  set('mHDI',     `HDI 95%: ${fmt(d.lift_hdi_lower)} – ${fmt(d.lift_hdi_upper)}`);
+  set('mRelLift', fmtPct(d.rel_lift_mean));
+  set('mRope',    `ROPE overlap: ${fmtPct(d.rope_overlap)}`);
+
+  const nColors = { Low: 'var(--green)', Medium: 'var(--yellow)', High: 'var(--red)', Unknown: 'var(--muted)' };
+  set('mNovelty',      d.novelty_risk, nColors[d.novelty_risk] || 'var(--muted)');
+  set('mNoveltyScore', `Score: ${d.novelty_score}`);
+
+  // ── Posterior chart ──
+  document.getElementById('posteriorSub').textContent =
+    `P(B > A) = ${fmtPct(d.prob_b_beats_a)}  ·  HDI 95%: ${fmt(d.lift_hdi_lower)} – ${fmt(d.lift_hdi_upper)}  ·  ROPE: ${fmtPct(d.rope_overlap)}`;
+
+  if (posteriorChartInst) posteriorChartInst.destroy();
+  const bgColors = d.kde_x.map(x => x >= 0 ? 'rgba(29,179,122,0.55)' : 'rgba(232,77,77,0.45)');
+  posteriorChartInst = new Chart(document.getElementById('posteriorChart'), {
+    type: 'bar',
+    data: {
+      labels: d.kde_x.map(x => x.toFixed(2) + '%'),
+      datasets: [{ data: d.kde_y, backgroundColor: bgColors, borderWidth: 0, barPercentage: 1.0, categoryPercentage: 1.0 }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => `Density: ${ctx.parsed.y.toFixed(4)}`, title: lbl => `Lift: ${lbl[0]}` }
+      }},
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: '#7c8db5', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { display: false }
+      }
+    }
+  });
+
+  // ── Novelty chart ──
+  if (noveltyChartInst) noveltyChartInst.destroy();
+  const nDays  = d.daily_lifts.map(r => 'D' + r.day);
+  const nLifts = d.daily_lifts.map(r => (r.lift * 100).toFixed(3));
+
+  // Trend line overlay (linear regression)
+  const xs = d.daily_lifts.map(r => r.day);
+  const ys = d.daily_lifts.map(r => r.lift * 100);
+  const n = xs.length, sumX = xs.reduce((a,b)=>a+b,0), sumY = ys.reduce((a,b)=>a+b,0);
+  const sumXY = xs.reduce((a,b,i)=>a+b*ys[i],0), sumX2 = xs.reduce((a,b)=>a+b*b,0);
+  const slope = (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX);
+  const intercept = (sumY - slope*sumX) / n;
+  const trendLine = xs.map(x => (slope*x + intercept).toFixed(3));
+
+  noveltyChartInst = new Chart(document.getElementById('noveltyChart'), {
+    type: 'line',
+    data: {
+      labels: nDays,
+      datasets: [
+        { label: 'Daily lift', data: nLifts, borderColor: '#f5a623', backgroundColor: 'rgba(245,166,35,0.12)', borderWidth: 2, pointRadius: 3, fill: true, tension: 0.3 },
+        { label: 'Trend', data: trendLine, borderColor: '#e84d4d', borderWidth: 1.5, borderDash: [5,3], pointRadius: 0, fill: false }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#7c8db5', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#7c8db5', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7c8db5', font: { size: 11 }, callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+
+  const nw = document.getElementById('noveltyWarning');
+  if (d.novelty_risk !== 'Low') {
+    nw.style.display = '';
+    nw.className = `novelty-warning novelty-${d.novelty_risk}`;
+    nw.textContent = `⚠ ${d.novelty_rec}`;
+  } else {
+    nw.style.display = 'none';
+  }
+
+  // ── Verdict ──
+  const badge = document.getElementById('verdictBadge');
+  badge.textContent = d.verdict;
+  badge.className = 'verdict-badge ' + (
+    d.verdict === 'GO' ? 'verdict-GO' :
+    d.verdict.startsWith('HOLD') ? 'verdict-HOLD' :
+    d.verdict.startsWith('NO GO') ? 'verdict-NOGO' : 'verdict-INC'
+  );
+  const subTexts = {
+    'GO': 'All conditions met — safe to ship treatment.',
+    'HOLD — extend experiment': 'Statistical signal exists but novelty effect requires more time.',
+    'NO GO — SRM present': 'Sample ratio mismatch detected — assignment logic is biased.',
+    'NO GO — insufficient evidence': 'P(B > A) below threshold — insufficient evidence to ship.',
+    'INCONCLUSIVE': 'Mixed signals — review individual checks below.',
+  };
+  document.getElementById('verdictSub').textContent = subTexts[d.verdict] || '';
+
+  // ── Checks ──
+  const checkLabels = {
+    prob_beats_a: ['P(B > A)', `${fmtPct(d.prob_b_beats_a)} vs threshold ${fmtPct(getConfig().prob_threshold)}`],
+    hdi_positive: ['HDI lower ≥ MDE', `${fmt(d.lift_hdi_lower)} vs min ${fmt(getConfig().min_lift)}`],
+    no_srm:       ['No sample ratio mismatch', d.srm_detected ? `SRM detected (p=${d.srm_p})` : 'Assignment looks balanced'],
+    low_novelty:  ['Low novelty risk', `Score ${d.novelty_score} — ${d.novelty_risk}`],
+  };
+  const grid = document.getElementById('checksGrid');
+  grid.innerHTML = Object.entries(d.checks).map(([k, pass]) => {
+    const [label, val] = checkLabels[k];
+    return `<div class="check-item">
+      <div class="check-icon">${pass ? '✅' : '⚠️'}</div>
+      <div><div class="check-val" style="color:${pass ? 'var(--green)' : 'var(--yellow)'}">${label}</div>
+      <div class="check-label">${val}</div></div>
+    </div>`;
+  }).join('');
+
+  // ── Revenue ──
+  const rb = document.getElementById('revenueBox');
+  if (d.revenue_low != null && d.revenue_high != null) {
+    rb.style.display = '';
+    document.getElementById('revenueVal').textContent = `${fmtDollars(d.revenue_low)} – ${fmtDollars(d.revenue_high)}`;
+    document.getElementById('revenueNote').textContent = `Based on 95% HDI × $${Number(getConfig().annual_gmv).toLocaleString()} annual GMV`;
+  } else {
+    rb.style.display = 'none';
+  }
+
+  // ── Variant bar chart ──
+  document.getElementById('variantSub').textContent =
+    `Control: ${d.control_n.toLocaleString()} users  ·  Treatment: ${d.treatment_n.toLocaleString()} users`;
+  if (variantChartInst) variantChartInst.destroy();
+  variantChartInst = new Chart(document.getElementById('variantChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Control', 'Treatment'],
+      datasets: [{
+        data: [(d.control_cvr * 100).toFixed(3), (d.treatment_cvr * 100).toFixed(3)],
+        backgroundColor: ['rgba(79,142,247,0.55)', 'rgba(29,179,122,0.65)'],
+        borderColor:     ['#4f8ef7', '#1db37a'],
+        borderWidth: 1.5, borderRadius: 6,
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x}%` } }
+      },
+      scales: {
+        x: { ticks: { color: '#7c8db5', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7c8db5' }, grid: { display: false } }
+      }
+    }
+  });
+
+  // ── SRM warnings ──
+  const srmDiv = document.getElementById('srmWarnings');
+  srmDiv.innerHTML = d.val_warnings.map(w =>
+    `<div class="error-box">⚠ ${w}</div>`
+  ).join('');
+}
+
+function set(id, text, color) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  if (color) el.style.color = color;
+}
+</script>
+</body>
+</html>

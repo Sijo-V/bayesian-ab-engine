@@ -1,0 +1,20 @@
+# Core
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+
+# Bayesian inference
+pymc>=5.10
+arviz>=0.17
+
+# Web server
+flask>=3.0
+
+# Simulation (optional — can replace with real data)
+faker>=19.0
+
+# PDF export
+reportlab>=4.1
+
+# Testing
+pytest>=7.4
