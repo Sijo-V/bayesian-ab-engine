@@ -151,10 +151,6 @@ pip install -r requirements.txt
 python app.py
 ```
 
-### 5. Open the dashboard
-```
-http://localhost:5050
-```
 
 Click **Run Analysis** in the sidebar to run your first analysis on simulated data.
 
@@ -290,19 +286,3 @@ When users click a new design simply because it is new. Conversion lifts in the 
 **What is SRM?**
 Sample Ratio Mismatch. When users are not split evenly between variants (e.g. 60/40 instead of 50/50). Caused by assignment bugs, bot traffic, or caching issues. Makes results statistically invalid regardless of the model output.
 
----
-
-## 📄 License
-
-MIT License — free to use, modify, and distribute.
-
----
-
-## 👤 Author
-
-**Sijo V**
-[github.com/Sijo-V](https://github.com/Sijo-V)
-
----
-
-*Built as a portfolio project demonstrating Bayesian statistical modelling, full-stack Python development, and real-world experimentation analysis.*
